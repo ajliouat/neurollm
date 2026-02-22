@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Data (large files — not committed)
+data/raw/
+data/processed/
+*.edf
+*.gdf
+*.mat
+*.npy
+*.npz
+
+# Checkpoints
+checkpoints/
+*.pt
+*.pth
+*.onnx
+
+# Training logs
+runs/
+wandb/
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Results (JSON/CSV committed, large binaries not)
+evaluation/results/*.pkl
+
+# Notebooks
+.ipynb_checkpoints/

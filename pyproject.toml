@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurollm"
+version = "1.0.0"
+description = "Foundation-model EEG decoding: pre-train transformer on TUH, fine-tune for motor imagery BCI"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+
+dependencies = [
+    "torch>=2.0",
+    "numpy>=1.24",
+    "scipy>=1.11",
+    "mne>=1.5",
+    "scikit-learn>=1.3",
+    "matplotlib>=3.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-timeout>=2.2",
+]
+cuda = [
+    "triton>=2.1",
+]
+
+[tool.setuptools.packages.find]
+include = ["data*", "model*", "kernels*", "training*", "evaluation*", "baselines*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 60
+addopts = "-ra"
