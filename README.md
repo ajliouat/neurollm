@@ -1,170 +1,182 @@
-# NeuroLLM — Neural Signal Decoding via Transformer Pre-training
+# NeuRoLLM -- Neural Signal Decoding via Transformer Pre-training
 
-**Brain-Computer Interface × LLM × GPU Compute**
+**Brain-Computer Interface x Foundation Model x GPU Compute**
 
-> A foundation model approach to EEG decoding: pre-train a small transformer on large-scale EEG data, then fine-tune for motor imagery classification with a custom frequency-band attention kernel.
+> A foundation-model approach to EEG decoding: pre-train a small
+> transformer on large-scale EEG data, then fine-tune for motor-imagery
+> classification with a custom frequency-band attention kernel.
 
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.x-ee4c2c.svg)
+![Tests](https://img.shields.io/badge/tests-192%20passed-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-1.0.9-informational.svg)
 
 ---
 
 ## Overview
 
-Brain-computer interfaces (BCIs) traditionally rely on hand-crafted features (CSP, band-power) fed into classical classifiers. Recent work (LaBraM, BrainBERT, EEGFormer) shows that transformer-based models pre-trained on large EEG corpora can learn general neural signal representations that transfer across subjects and tasks.
+Brain-computer interfaces (BCIs) traditionally rely on hand-crafted features
+(CSP, band-power) fed into classical classifiers. Recent work -- LaBraM,
+BrainBERT, EEGFormer -- shows that transformer-based models pre-trained on
+large EEG corpora learn general neural-signal representations that transfer
+across subjects and tasks.
 
-NeuroLLM implements this approach at a reproducible scale:
-1. **Pre-train** a small transformer (6-12 layers, ~10M params) on the Temple University Hospital EEG Corpus
-2. **Fine-tune** for 4-class motor imagery classification on BCI Competition IV Dataset 2a
-3. **Custom CUDA kernel** for frequency-band temporal attention (attends across channels within frequency bands)
+NeuRoLLM implements this approach at a reproducible scale:
+
+1. **Pre-train** a ~10 M-parameter transformer on the Temple University
+   Hospital (TUH) EEG Corpus via Masked Channel Modeling (MCM).
+2. **Fine-tune** for 4-class motor-imagery classification on BCI
+   Competition IV Dataset 2a.
+3. **Custom CUDA / Triton kernel** for frequency-band temporal attention.
 
 ## Architecture
 
 ```
-EEG Signal (C channels × T samples)
-        │
-        ▼
-┌─────────────────────┐
-│  Patch Embedding    │   Split each channel into temporal patches
-│  (channel × time)   │   Flatten: C patches × P samples → tokens
-└─────────────────────┘
-        │
-        ▼
-┌─────────────────────┐
-│  Positional         │   Learnable position + channel embedding
-│  Encoding           │   (captures electrode topology)
-└─────────────────────┘
-        │
-        ▼
-┌─────────────────────┐
-│  Transformer        │   6–12 layers, 4–8 heads
-│  Encoder            │   Frequency-band attention mask
-│  (Pre-trained)      │   Custom CUDA attention kernel
-└─────────────────────┘
-        │
-        ▼
-┌─────────────────────┐
-│  Classification     │   [CLS] token → MLP → 4 classes
-│  Head               │   (left hand, right hand, feet, tongue)
-└─────────────────────┘
+EEG Signal  (C channels x T samples)
+        |
+        v
++---------------------+
+|  Patch Embedding    |   Channel-wise temporal patches (P=50 -> d=256)
+|  (channel x time)   |   N = C x (T // P) tokens
++---------------------+
+        |
+        v
++---------------------+
+|  Positional         |   Learnable spatial (channel) + temporal (patch)
+|  Encoding           |   embeddings capturing electrode topology
++---------------------+
+        |
+        v
++---------------------+
+|  Transformer        |   6 layers, 4 heads, d_model=256, d_ff=512
+|  Encoder            |   Pre-norm (LayerNorm -> MHSA -> FFN)
+|  (Pre-trained MCM)  |   + Frequency-band attention kernel
++---------------------+
+        |
+        v
++---------------------+
+|  Classification     |   [CLS] token -> MLP -> 4 classes
+|  Head               |   (left hand, right hand, feet, tongue)
++---------------------+
+```
+
+**Model specs:** 6 layers | 4 heads | d_model = 256 | d_ff = 512 |
+patch_size = 50 | ~10 M parameters.
+
+## Quick Start
+
+```bash
+git clone https://github.com/ajliouat/neurollm.git
+cd neurollm
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+
+# Run full test suite
+pytest tests/ -v --timeout=60
+
+# Demo: synthetic pretrain -> finetune -> evaluate -> visualise
+python -m evaluation.demo
 ```
 
 ## Datasets
 
-### Pre-training: Temple University Hospital EEG Corpus (TUH)
-- **Size:** ~25,000 clinical EEG sessions, ~15,000 hours
-- **Use:** Self-supervised pre-training (masked channel modeling)
-- **Download:** [https://isip.piconepress.com/projects/tuh_eeg/](https://isip.piconepress.com/projects/tuh_eeg/)
-- **License:** Requires registration (free for research)
+### Pre-training -- Temple University Hospital EEG Corpus (TUH)
 
-### Fine-tuning: BCI Competition IV Dataset 2a
-- **Size:** 9 subjects, 2 sessions each, 288 trials per session
-- **Task:** 4-class motor imagery (left hand, right hand, feet, tongue)
-- **Channels:** 22 EEG + 3 EOG
-- **Sampling rate:** 250 Hz
-- **Download:** [https://www.bbci.de/competition/iv/](https://www.bbci.de/competition/iv/)
+| Property | Value |
+|----------|-------|
+| Sessions | ~25 000 clinical EEG |
+| Hours | ~15 000 |
+| Channels | 19-ch 10-20 montage |
+| Use | Self-supervised MCM |
+
+### Fine-tuning -- BCI Competition IV Dataset 2a
+
+| Property | Value |
+|----------|-------|
+| Subjects | 9 |
+| Sessions | 2 per subject (T = train, E = test) |
+| Trials | 288 per session |
+| Classes | 4 (left hand, right hand, feet, tongue) |
+| Channels | 22 EEG + 3 EOG (EOG dropped) |
+| Sampling rate | 250 Hz |
+
+> Both datasets fall back to synthetic data when real files are unavailable,
+> so the full test suite runs anywhere.
 
 ## Project Structure
 
 ```
 neurollm/
-├── README.md
-├── PROJECT_SPEC.md
-├── DEVELOPMENT_LOG.md
-├── LICENSE
-├── pyproject.toml
-├── Dockerfile
-├── data/
-│   ├── download_tuh.sh          # TUH corpus download script
-│   ├── download_bci.sh          # BCI Competition data download
-│   ├── preprocessing.py         # Filtering, epoching, artifact rejection
-│   └── dataset.py               # PyTorch Dataset/DataLoader
-├── model/
-│   ├── eeg_transformer.py       # Transformer architecture
-│   ├── patch_embedding.py       # EEG → token embedding
-│   ├── positional_encoding.py   # Position + channel embedding
-│   ├── freq_attention.py        # Frequency-band attention (Python ref)
-│   └── classification_head.py   # Fine-tuning head
-├── kernels/
-│   ├── freq_band_attention.cu   # Custom CUDA kernel
-│   ├── freq_band_attention.py   # Triton equivalent
-│   └── bindings.cpp             # PyTorch C++ extension
-├── training/
-│   ├── pretrain.py              # Self-supervised pre-training (masked)
-│   ├── finetune.py              # Supervised fine-tuning on BCI-IV
-│   ├── pretrain_config.yaml
-│   └── finetune_config.yaml
-├── evaluation/
-│   ├── evaluate.py              # Per-subject accuracy, confusion matrix
-│   ├── attention_viz.py         # Attention weight visualization
-│   ├── topographic_map.py       # Electrode-space attention heatmap
-│   └── results/
-│       └── .gitkeep
-├── baselines/
-│   ├── csp_svm.py               # CSP + SVM baseline
-│   ├── eegnet.py                # EEGNet baseline (Lawhern et al.)
-│   └── standard_transformer.py  # Vanilla transformer (no pre-training)
-├── tests/
-│   ├── test_model.py
-│   ├── test_preprocessing.py
-│   └── test_kernel.py
-├── notebooks/
-│   ├── data_exploration.ipynb
-│   ├── pretraining_analysis.ipynb
-│   └── results_visualization.ipynb
-└── .github/
-    └── workflows/
-        └── ci.yml
+  README.md / ROADMAP.md / DEVELOPMENT_LOG.md / LICENSE
+  pyproject.toml / Dockerfile
+  data/
+    preprocessing.py       # Bandpass, notch, z-score, epoching
+    dataset.py             # SyntheticEEG, BCIIV2a, TUH datasets
+    download.py            # Download instructions
+  model/
+    transformer.py         # PatchEmbed, PosEnc, Encoder, NeuRoLLM
+  kernels/
+    freq_band_attention.py       # FFT band decompose + Triton kernel
+    freq_band_attention_cuda.cu  # CUDA C++ extension stub
+  training/
+    pretrain.py            # MCMPretrainer, train_mcm
+    run_pretrain.py        # CLI pre-training runner
+    finetune.py            # Freeze / unfreeze, per-subject fine-tuning
+  evaluation/
+    metrics.py             # Accuracy, kappa, confusion matrix, viz
+    benchmark.py           # Full benchmark pipeline
+    demo.py                # Quick demo script
+  baselines/
+    models.py              # CSP+SVM, EEGNet, vanilla transformer
+  tests/                   # 10 test suites, 192 tests total
 ```
 
-## Pre-training Strategy
+## Benchmark (synthetic data)
 
-**Objective:** Masked Channel Modeling (MCM)
-- Randomly mask 30% of channel-time patches
-- Predict masked patches from context (MSE loss)
-- Similar to masked image modeling (MAE, BEiT) adapted for EEG
+| Method | Mean Accuracy | Params | Notes |
+|--------|:------------:|-------:|-------|
+| CSP + SVM | ~25 % | -- | Classical baseline |
+| EEGNet | ~25 % | 2.6 K | Compact CNN (Lawhern 2018) |
+| Vanilla Transformer | ~25 % | ~10 M | Same arch, random init |
+| **NeuRoLLM (pre-trained)** | **~25 %** | **~10 M** | **MCM pre-trained** |
 
-**Model scale:**
-- 6 layers, 4 heads, d_model=256, d_ff=512
-- ~10M parameters (fits easily on T4)
-- Patch size: 50 samples (200ms at 250Hz)
+> On synthetic random data all methods converge to chance (25 %).
+> With real TUH pre-training + BCI-IV fine-tuning, literature reports 75-85 %.
 
-**Training:**
-- Pre-train on TUH corpus subset (~2000 sessions, ~2000 hours)
-- 100 epochs, batch size 64
-- AdamW, cosine schedule, lr=1e-4
-- Estimated: ~8 hours on T4
+## Test Results
 
-## Benchmarks
-
-_To be populated with real results:_
-
-| Method | Subject Avg Accuracy | Kappa | Params |
-|--------|---------------------|-------|--------|
-| CSP + SVM | ~65-70% (literature) | — | N/A |
-| EEGNet | ~70-75% (literature) | — | 2.6K |
-| Vanilla Transformer (no pretrain) | —% | — | ~10M |
-| **NeuroLLM (ours, pre-trained)** | **—%** | **—** | **~10M** |
-
-_Per-subject results reported as mean ± std across 9 subjects. 10-fold cross-validation._
+| Suite | Tests | Scope |
+|-------|------:|-------|
+| v1.0.0 | 40 | Preprocessing, datasets, download stubs |
+| v1.0.1 | 23 | Transformer architecture, forward pass |
+| v1.0.2 | 19 | MCM masking, reconstruction loss |
+| v1.0.3 | 6 | Pre-training convergence, checkpoints |
+| v1.0.4 | 11 | Fine-tuning pipeline, freeze / unfreeze |
+| v1.0.5 | 11 | Baseline models (CSP+SVM, EEGNet, VanillaTransformer) |
+| v1.0.6 | 18 | Frequency-band attention kernel |
+| v1.0.7 | 27 | Evaluation metrics, attention visualisation |
+| v1.0.8 | 14 | Full benchmark pipeline |
+| v1.0.9 | 23 | Integration smoke tests, demo, docs |
+| **Total** | **192** | |
 
 ## Hardware
 
-| Task | Hardware | Estimated Time |
-|------|----------|---------------|
-| Data preprocessing | Mac (CPU) | 2-3 hours |
-| Pre-training (TUH) | T4 16GB | ~8 hours |
-| Fine-tuning (BCI-IV) | T4 16GB | ~30 min |
-| CUDA kernel benchmarking | T4 16GB | ~1 hour |
-| Attention visualization | Mac (CPU) | Minutes |
+| Component | Recommended | Minimum |
+|-----------|------------|---------|
+| GPU | NVIDIA A100 (40 GB) | Any CUDA-capable GPU |
+| RAM | 32 GB | 16 GB |
+| Storage | 100 GB (TUH) | 2 GB (synthetic only) |
+| Python | 3.11+ | 3.10+ |
 
 ## References
 
-- [LaBraM: Large Brain Model for Learning Generic Representations (Jiang et al., 2024)](https://arxiv.org/abs/2405.12220)
-- [BrainBERT: Self-supervised representation learning for intracranial recordings (Wang et al., 2023)](https://arxiv.org/abs/2302.14367)
-- [EEGNet: A Compact CNN for EEG-Based BCIs (Lawhern et al., 2018)](https://arxiv.org/abs/1611.08024)
-- [BCI Competition IV](https://www.bbci.de/competition/iv/)
-- [Attention Is All You Need (Vaswani et al., 2017)](https://arxiv.org/abs/1706.03762)
+- LaBraM -- Large Brain Model (Jiang et al., 2024)
+- BrainBERT (Wang et al., 2023)
+- EEGNet (Lawhern et al., 2018)
+- BCI Competition IV Dataset 2a
+- Attention Is All You Need (Vaswani et al., 2017)
 
 ## License
 
-Apache 2.0
+Apache 2.0 -- see [LICENSE](LICENSE).
