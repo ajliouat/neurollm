@@ -46,6 +46,10 @@ def load_pretrained_encoder(
 ) -> NeuRoLLM:
     """Load pre-trained MCM weights into the encoder (ignoring recon head).
 
+    Handles channel-count mismatch between pre-train (e.g. 19-ch TUH)
+    and fine-tune (e.g. 22-ch BCI-IV) by skipping spatial embeddings
+    with incompatible shapes.
+
     Parameters
     ----------
     model : NeuRoLLM
@@ -66,8 +70,16 @@ def load_pretrained_encoder(
             new_key = k[len("model."):]
             encoder_state[new_key] = v
 
-    # Load with strict=False to skip head/cls_token if shapes differ
-    missing, unexpected = model.load_state_dict(encoder_state, strict=False)
+    # Filter out keys with shape mismatches (e.g. spatial embeddings
+    # when pre-train channels ≠ fine-tune channels)
+    model_state = model.state_dict()
+    compatible_state = {}
+    for k, v in encoder_state.items():
+        if k in model_state and model_state[k].shape == v.shape:
+            compatible_state[k] = v
+
+    # Load with strict=False to skip head/cls_token and mismatched keys
+    missing, unexpected = model.load_state_dict(compatible_state, strict=False)
     return model
 
 
